@@ -710,6 +710,31 @@
         .report-day-head { display: flex; justify-content: space-between; margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
         .report-ex { padding: 0.35rem 0; font-size: 0.85rem; }
         .report-sets { color: var(--muted); font-size: 0.8rem; overflow-wrap: anywhere; }
+
+        .report-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+        .report-toolbar h2 { font-size: 1.1rem; }
+        .report-meta { font-size: 0.75rem; color: var(--muted); }
+        .report-ex { border-top: 1px solid var(--border); }
+        .report-ex:first-of-type { border-top: none; }
+        .report-ex-name { font-weight: 600; margin-bottom: 0.25rem; }
+        .report-set { display: flex; justify-content: space-between; padding: 0.2rem 0 0.2rem 0.75rem; font-size: 0.8rem; color: var(--muted); }
+        .report-set span:first-child { color: var(--text); font-weight: 600; }
+
+        @media print {
+            :root { --primary: #fff; --secondary: #fff; --text: #000; --muted: #444; --border: #999; }
+            body { background: #fff; color: #000; padding: 0; }
+            header, .day-selector, .exercises-grid, .toast, .report-toolbar button { display: none !important; }
+            .report-day, .report-summary .stat { break-inside: avoid; }
+        }
+
+        .session-type { margin-bottom: 0.75rem; }
+        .session-type select { width: 100%; padding: 0.5rem; height: 40px; font-size: 16px; background: var(--primary); color: var(--text); border: 1px solid var(--border); border-radius: 0.375rem; }
+        .session-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 0.75rem; align-items: end; }
+        .session-fields.one { grid-template-columns: minmax(0, 1fr); }
+        .session-add { width: 100%; margin-bottom: 0.75rem; }
+        .session-card { border-left: 3px solid var(--success); }
+        .session-card .set-logged-data { flex-wrap: wrap; gap: 0.15rem 0.75rem; }
+        .session-entry-label { font-weight: 600; color: var(--success); }
     </style>
 </head>
 <body>
@@ -831,6 +856,8 @@
 
             emptyState.classList.add('hidden');
 
+            container.appendChild(buildSessionCard('warmup'));
+
             exercises.forEach((exercise, index) => {
                 const key = getExerciseKey(currentWeek, index);
                 const exerciseData = data[key] || { loggedSets: [] };
@@ -942,6 +969,94 @@
 
                 container.appendChild(card);
             });
+
+            container.appendChild(buildSessionCard('cooldown'));
+        }
+
+        let warmupType = 'walk';
+
+        function sessionKey(kind) {
+            return `${currentPlan}_${currentWeek}_${currentDay}_${kind}`;
+        }
+
+        function describeEntry(e) {
+            if (e.type === 'dumbbell') return { label: `${e.weight || 1} kg dumbbell set`, detail: `${e.reps} reps` };
+            return { label: 'Treadmill walk', detail: `${e.minutes} min, ${e.incline}% incline, ${e.speed} km/h` };
+        }
+
+        function sessionFieldsHTML(type) {
+            if (type === 'dumbbell') {
+                return `<div class="session-fields one">
+                    <div class="input-group"><label>Reps</label><input type="number" inputmode="numeric" class="f-reps" placeholder="reps" min="0"></div>
+                </div>`;
+            }
+            return `<div class="session-fields">
+                <div class="input-group"><label>Minutes</label><input type="number" inputmode="decimal" class="f-minutes" placeholder="min" min="0" step="any"></div>
+                <div class="input-group"><label>Incline %</label><input type="number" inputmode="decimal" class="f-incline" placeholder="%" min="0" step="any"></div>
+                <div class="input-group"><label>Speed km/h</label><input type="number" inputmode="decimal" class="f-speed" placeholder="km/h" min="0" step="any"></div>
+            </div>`;
+        }
+
+        function buildSessionCard(kind) {
+            const isWarm = kind === 'warmup';
+            const title = isWarm ? 'Warm-up' : 'Cool-down';
+            const key = sessionKey(kind);
+            const entries = Array.isArray(data[key]) ? data[key] : [];
+            const card = document.createElement('div');
+            card.className = 'exercise-card session-card';
+            card.innerHTML = `
+                <div class="exercise-header"><div class="exercise-title">
+                    <h3>${title}</h3>
+                    <div class="body-part">${isWarm ? 'Optional · add as many as you need' : 'Optional · treadmill walk'}</div>
+                </div></div>
+                ${isWarm ? `<div class="input-group session-type"><label>Type</label><select class="f-type"><option value="walk">Treadmill walk</option><option value="dumbbell">1 kg dumbbell set</option></select></div>` : ''}
+                <div class="session-fields-wrap"></div>
+                <button class="log-set-btn session-add">Add ${title.toLowerCase()}</button>
+                ${entries.length ? `<div class="sets-log session-list">${entries.map((e, i) => {
+                    const d = describeEntry(e);
+                    return `<div class="set-logged"><div class="set-logged-data"><span class="session-entry-label">${d.label}</span><span class="set-logged-value">${d.detail}</span></div><button class="set-logged-delete" data-index="${i}">✕</button></div>`;
+                }).join('')}</div>` : ''}`;
+
+            const wrap = card.querySelector('.session-fields-wrap');
+            const typeSel = card.querySelector('.f-type');
+            const curType = () => isWarm ? warmupType : 'walk';
+            wrap.innerHTML = sessionFieldsHTML(curType());
+            if (typeSel) {
+                typeSel.value = warmupType;
+                typeSel.addEventListener('change', () => {
+                    warmupType = typeSel.value;
+                    wrap.innerHTML = sessionFieldsHTML(warmupType);
+                });
+            }
+
+            card.querySelector('.session-add').addEventListener('click', () => {
+                const num = sel => { const el = wrap.querySelector(sel); return el ? parseFloat(el.value) : NaN; };
+                let entry;
+                if (curType() === 'dumbbell') {
+                    const reps = num('.f-reps');
+                    if (!(reps > 0)) { showToast('Enter the reps'); return; }
+                    entry = { type: 'dumbbell', weight: 1, reps };
+                } else {
+                    const minutes = num('.f-minutes'), speed = num('.f-speed'), incline = num('.f-incline');
+                    if (!(minutes > 0) || !(speed > 0)) { showToast('Enter minutes and speed'); return; }
+                    entry = { type: 'walk', minutes, incline: isNaN(incline) ? 0 : incline, speed };
+                }
+                if (!Array.isArray(data[key])) data[key] = [];
+                data[key].push(entry);
+                saveData();
+                renderExercises();
+            });
+
+            card.querySelectorAll('.set-logged-delete').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    data[key].splice(parseInt(btn.dataset.index), 1);
+                    if (!data[key].length) delete data[key];
+                    saveData();
+                    renderExercises();
+                });
+            });
+
+            return card;
         }
 
         function calculateSetVolume(exerciseData) {
@@ -1042,10 +1157,11 @@
             const el = document.getElementById('daySelector');
             el.innerHTML = '';
             DAYS.forEach(([id, label]) => {
+                const base = `${currentPlan}_${currentWeek}_${id}_`;
                 const hasData = list.some((_, i) => {
-                    const d = data[`${currentPlan}_${currentWeek}_${id}_${i}`];
+                    const d = data[base + i];
                     return d && d.loggedSets && d.loggedSets.length;
-                });
+                }) || (data[base + 'warmup'] || []).length > 0 || (data[base + 'cooldown'] || []).length > 0;
                 const b = document.createElement('button');
                 b.className = 'day-btn' + (id === currentDay ? ' active' : '') + (hasData ? ' has-data' : '');
                 b.textContent = label;
@@ -1064,9 +1180,11 @@
                         const d = data[`${plan}_${week}_${id}_${i}`];
                         if (d && d.loggedSets && d.loggedSets.length) items.push({ name: ex.exercise, sets: d.loggedSets });
                     });
-                    if (items.length) sessions.push({ plan, items });
+                    const warmup = Array.isArray(data[`${plan}_${week}_${id}_warmup`]) ? data[`${plan}_${week}_${id}_warmup`] : [];
+                    const cooldown = Array.isArray(data[`${plan}_${week}_${id}_cooldown`]) ? data[`${plan}_${week}_${id}_cooldown`] : [];
+                    if (items.length || warmup.length || cooldown.length) sessions.push({ plan, items, warmup, cooldown });
                 });
-                if (sessions.length) trained++;
+                if (sessions.some(s => s.items.length)) trained++;
                 sessions.forEach(s => s.items.forEach(it => it.sets.forEach(x => { sets++; volume += x.weight * x.reps; })));
                 return { label, sessions };
             });
@@ -1081,24 +1199,111 @@
                 const pct = Math.round((s.volume - prev.volume) / prev.volume * 100);
                 delta = `<span class="stat-label">${pct >= 0 ? '+' : ''}${pct}% vs week ${currentWeek - 1}</span>`;
             }
-            let html = `<div class="report-summary">
+            let html = `<div class="report-toolbar">
+                <div><h2>Training report: Week ${currentWeek}</h2><div class="report-meta">Generated ${new Date().toLocaleDateString('en-GB')}</div></div>
+                <button class="export" onclick="exportReportPdf()">Export PDF</button>
+            </div>
+            <div class="report-summary">
                 <div class="stat"><span class="stat-label">Workouts</span><span class="stat-value">${s.trained}</span></div>
                 <div class="stat"><span class="stat-label">Sets</span><span class="stat-value">${s.sets}</span></div>
                 <div class="stat"><span class="stat-label">Volume</span><span class="stat-value">${s.volume} kg</span>${delta}</div>
             </div>`;
-            if (!s.trained) {
+            if (!s.days.some(d => d.sessions.length)) {
                 html += `<div class="empty-state"><p>No workouts logged for week ${currentWeek}.</p></div>`;
             }
+            const sessionBlock = (title, list) => list.length ? `<div class="report-ex"><div class="report-ex-name">${title}</div>${list.map(e => { const d = describeEntry(e); return `<div class="report-set"><span>${d.label}</span><span>${d.detail}</span></div>`; }).join('')}</div>` : '';
             s.days.forEach(day => day.sessions.forEach(sess => {
                 let vol = 0;
                 sess.items.forEach(it => it.sets.forEach(x => vol += x.weight * x.reps));
                 html += `<div class="report-day">
-                    <div class="report-day-head"><strong>${day.label} · ${sess.plan === 'gym' ? 'Gym' : 'Home'}</strong><span>${Math.round(vol)} kg</span></div>
-                    ${sess.items.map(it => `<div class="report-ex"><div>${it.name}</div><div class="report-sets">${it.sets.map(x => `${x.weight}×${x.reps}`).join(' · ')}</div></div>`).join('')}
+                    <div class="report-day-head"><strong>${day.label} · ${sess.plan === 'gym' ? 'Gym' : 'Home'}</strong><span>${sess.items.length ? Math.round(vol) + ' kg' : ''}</span></div>
+                    ${sessionBlock('Warm-up', sess.warmup)}
+                    ${sess.items.map(it => `<div class="report-ex"><div class="report-ex-name">${it.name}</div>${it.sets.map((x, n) => `<div class="report-set"><span>Set ${n + 1}</span><span>${x.weight} kg × ${x.reps} reps</span></div>`).join('')}</div>`).join('')}
+                    ${sessionBlock('Cool-down', sess.cooldown)}
                 </div>`;
             }));
             document.getElementById('reportContainer').innerHTML = html;
         }
+
+        function exportReportPdf() {
+            const s = weekSummary(currentWeek);
+            const L = [];
+            L.push({ t: `Training report - Week ${currentWeek}`, size: 18, bold: true });
+            L.push({ t: `Generated ${new Date().toLocaleDateString('en-GB')}`, size: 9, gap: 2 });
+            L.push({ t: `Workouts: ${s.trained}    Sets: ${s.sets}    Volume: ${s.volume} kg`, size: 11, bold: true, gap: 10 });
+            if (!s.days.some(d => d.sessions.length)) L.push({ t: 'No workouts logged this week.', size: 11, gap: 10 });
+            const pdfBlock = (title, list) => {
+                if (!list.length) return;
+                L.push({ t: title, size: 11, bold: true, gap: 6 });
+                list.forEach(e => { const d = describeEntry(e); L.push({ t: `${d.label}:  ${d.detail}`, size: 10, indent: 14 }); });
+            };
+            s.days.forEach(day => day.sessions.forEach(sess => {
+                let vol = 0;
+                sess.items.forEach(it => it.sets.forEach(x => vol += x.weight * x.reps));
+                L.push({ t: `${day.label} - ${sess.plan === 'gym' ? 'Gym' : 'Home'}  ${sess.items.length ? `(${Math.round(vol)} kg total)` : ''}`, size: 13, bold: true, gap: 16 });
+                pdfBlock('Warm-up', sess.warmup);
+                sess.items.forEach(it => {
+                    L.push({ t: it.name, size: 11, bold: true, gap: 6 });
+                    it.sets.forEach((x, n) => L.push({ t: `Set ${n + 1}:  ${x.weight} kg x ${x.reps} reps`, size: 10, indent: 14 }));
+                });
+                pdfBlock('Cool-down', sess.cooldown);
+            }));
+
+            const W = 595, H = 842, M = 40;
+            const esc = str => String(str).replace(/[^\x20-\x7E]/g, '?').replace(/([\\()])/g, '\\$1');
+            const pages = [];
+            let ops = [], y = H - M;
+            const newPage = () => { pages.push(ops.join('\n')); ops = []; y = H - M; };
+            L.forEach(l => {
+                const lh = l.size * 1.4, need = (l.gap || 0) + lh;
+                if (y - need < M) newPage();
+                y -= (l.gap || 0) + l.size;
+                ops.push(`BT /${l.bold ? 'F2' : 'F1'} ${l.size} Tf ${M + (l.indent || 0)} ${y.toFixed(1)} Td (${esc(l.t)}) Tj ET`);
+                y -= lh - l.size;
+            });
+            pages.push(ops.join('\n'));
+
+            const objs = [];
+            const n = pages.length;
+            objs[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+            objs[2] = `<< /Type /Pages /Count ${n} /Kids [${pages.map((_, i) => `${5 + i * 2} 0 R`).join(' ')}] >>`;
+            objs[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+            objs[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+            pages.forEach((c, i) => {
+                objs[5 + i * 2] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${6 + i * 2} 0 R >>`;
+                objs[6 + i * 2] = `<< /Length ${c.length} >>\nstream\n${c}\nendstream`;
+            });
+            let pdf = '%PDF-1.4\n';
+            const offs = [];
+            for (let i = 1; i < objs.length; i++) { offs[i] = pdf.length; pdf += `${i} 0 obj\n${objs[i]}\nendobj\n`; }
+            const xref = pdf.length;
+            pdf += `xref\n0 ${objs.length}\n0000000000 65535 f \n`;
+            for (let i = 1; i < objs.length; i++) pdf += String(offs[i]).padStart(10, '0') + ' 00000 n \n';
+            pdf += `trailer\n<< /Size ${objs.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+
+            const bytes = new Uint8Array(pdf.length);
+            for (let i = 0; i < pdf.length; i++) bytes[i] = pdf.charCodeAt(i) & 255;
+            const name = `training-report-week-${currentWeek}.pdf`;
+            const file = new File([bytes], name, { type: 'application/pdf' });
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                navigator.share({ files: [file], title: `Training report - Week ${currentWeek}` }).catch(() => {});
+                return;
+            }
+            const url = URL.createObjectURL(file);
+            const a = document.createElement('a');
+            a.href = url; a.download = name;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+            showToast('PDF saved');
+        }
+
+        window.addEventListener('beforeprint', () => {
+            document.title = `Training report - Week ${currentWeek}`;
+        });
+        window.addEventListener('afterprint', () => {
+            document.title = 'Training Tracker';
+        });
 
         document.querySelectorAll('.tab').forEach(btn => {
             btn.addEventListener('click', () => {
